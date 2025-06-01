@@ -3,8 +3,10 @@ FastAPI application entry point for Model Manager
 Implements proper lifespan management and middleware
 """
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,10 +15,10 @@ from fastapi.responses import JSONResponse
 import structlog
 import uvicorn
 
-from .config import get_settings
-from .core.logging_config import setup_logging
-from .core.dependencies import get_model_service
-from .routes import models_router, workers_router, health_router
+from app.config import get_settings
+from app.core.logging_config import setup_logging
+from app.core.dependencies import get_model_service
+from app.routes import health_router, models_router, workers_router
 
 # Initialize logging
 settings = get_settings()
@@ -36,30 +38,52 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Model Manager application")
     
     try:
-        settings = get_settings()        # Initialize core components
-        from .models.registry import ModelRegistry
-        from .models.downloader import ModelDownloader
-        from .services.registry_service import RegistryService
-        from .services.download_service import DownloadService
-        from .services.model_service import ModelService
+        settings = get_settings()
+          # Initialize core components
+        from app.models.postgresql_registry import PostgreSQLModelRegistry
+        from app.models.downloader import ModelDownloader
+        from app.services import RegistryService, DownloadService, ModelService
         
-        # Create instances
-        registry = ModelRegistry(db_path=Path(settings.registry_file))
-        downloader = ModelDownloader(registry=registry, download_dir=Path(settings.models_directory))
+        # Database configuration for PostgreSQL
+        db_config = {
+            'host': os.getenv('MODEL_DB_HOST', 'localhost'),
+            'port': int(os.getenv('MODEL_DB_PORT', '5432')),
+            'database': os.getenv('MODEL_DB_NAME', 'bitinglip_models'),
+            'user': os.getenv('MODEL_DB_USER', 'model_manager'),
+            'password': os.getenv('MODEL_DB_PASSWORD', 'model_manager_2025!'),
+        }
         
-        # Create adapter services
+        # Create instances - using PostgreSQL registry
+        registry = PostgreSQLModelRegistry(db_config)
+        models_dir = Path(os.getenv('MODELS_DIRECTORY', './models'))
+        models_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+          # Create adapter services with full HuggingFace integration
         registry_service = RegistryService(registry)
+        
+        # Initialize ModelDownloader with HuggingFace Hub integration
+        downloader = ModelDownloader(
+            registry=registry,
+            download_dir=models_dir,
+            cache_dir=Path('./cache/downloads'),
+            max_concurrent_downloads=3
+        )
+        
+        # Create DownloadService adapter
         download_service = DownloadService(downloader)
+        
+        # Create full ModelService with download capabilities
         model_service = ModelService(registry_service, download_service)
         
         # Store in app state for dependency injection
         app.state.registry_service = registry_service
-        app.state.download_service = download_service
         app.state.model_service = model_service
         
+        # Store global reference for cleanup
+        model_service = model_service
+        
         logger.info("Model Manager startup completed", 
-                   db_path=str(settings.registry_file),
-                   models_dir=str(settings.models_directory))
+                   database=db_config['database'],
+                   models_dir=str(models_dir))
         
         yield
         
@@ -93,11 +117,9 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-    )
-    
+    )    
     app.add_middleware(GZipMiddleware, minimum_size=1000)
-    
-    # Add routers
+      # Add routers
     app.include_router(health_router)
     app.include_router(models_router)
     app.include_router(workers_router)
@@ -161,12 +183,19 @@ def main():
     """Main entry point for running the application"""
     settings = get_settings()
     
+    # Use INFO as default log level since settings doesn't have log_level
+    log_level = getattr(settings, 'log_level', 'info')
+    if hasattr(log_level, 'lower'):
+        log_level = log_level.lower()
+    else:
+        log_level = 'info'
+    
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         reload=settings.debug,
-        log_level=settings.log_level.lower(),
+        log_level=log_level,
         access_log=True
     )
 

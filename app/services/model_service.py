@@ -185,10 +185,10 @@ class ModelService:
     async def get_system_status(self) -> Dict[str, Any]:
         """Get overall system status"""
         try:
-            models = await self.list_models()
-            workers = await self.list_workers()
+            models, _ = await self.list_models()
+            workers, _ = await self.list_workers()
             downloads = await self.download_service.list_downloads()
-            
+
             # Calculate statistics
             model_stats = {
                 'total': len(models),
@@ -197,18 +197,18 @@ class ModelService:
                 'error': len([m for m in models if m.status == ModelStatus.ERROR]),
                 'total_size_gb': sum(m.size_gb for m in models)
             }
-            
+
             worker_stats = {
                 'total': len(workers),
                 'online': len([w for w in workers if w.status == WorkerStatus.ONLINE]),
                 'busy': len([w for w in workers if w.status == WorkerStatus.BUSY]),
                 'offline': len([w for w in workers if w.status == WorkerStatus.OFFLINE])
             }
-            
+
             download_stats = {
                 'active_downloads': len(downloads)
             }
-            
+
             return {
                 'timestamp': datetime.utcnow().isoformat(),
                 'models': model_stats,

@@ -7,7 +7,7 @@ import os
 import shutil
 import hashlib
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable, List, Union
 from datetime import datetime
 import asyncio
 import aiohttp
@@ -25,6 +25,7 @@ from huggingface_hub import (
 from huggingface_hub.errors import RepositoryNotFoundError, RevisionNotFoundError
 
 from .registry import ModelRegistry
+from .postgresql_registry import PostgreSQLModelRegistry
 from ..schemas.models import ModelEntry, ModelType, ModelStatus
 
 logger = structlog.get_logger(__name__)
@@ -75,7 +76,7 @@ class ModelDownloader:
     """Enhanced model downloader with HuggingFace integration"""
     
     def __init__(self, 
-                 registry: ModelRegistry,
+                 registry: Union[ModelRegistry, PostgreSQLModelRegistry],
                  download_dir: Optional[Path] = None,
                  cache_dir: Optional[Path] = None,
                  max_concurrent_downloads: int = 3):

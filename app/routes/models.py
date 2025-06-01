@@ -126,7 +126,9 @@ async def assign_model(
         else:
             request.model_id = model_id
             
-        assigned = await model_service.assign_model(request)
+        if not request.worker_id:
+            raise HTTPException(status_code=400, detail="worker_id is required")
+        assigned = await model_service.assign_model(model_id, request.worker_id)
         if not assigned:
             raise HTTPException(status_code=400, detail="Failed to assign model")
         
@@ -149,15 +151,9 @@ async def unassign_model(
 ):
     """Unassign model from worker"""
     try:
-        unassigned = await model_service.unassign_model(model_id)
-        if not unassigned:
-            raise HTTPException(status_code=404, detail="Model not found or not assigned")        
-        return ApiResponse(
-            success=True,
-            message=f"Model {model_id} unassigned successfully",
-            data=None,
-            error=None
-        )
+        # For now, we'll use a workaround since unassign_model doesn't exist
+        # This could be implemented by assigning to None or a special worker
+        raise HTTPException(status_code=501, detail="Unassign functionality not yet implemented")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -224,7 +220,16 @@ async def get_model_statistics(
 ):
     """Get detailed model statistics"""
     try:
-        stats = await model_service.get_model_statistics()
+        # Use system status since get_model_statistics doesn't exist
+        system_status = await model_service.get_system_status()
+        
+        # Transform to match expected statistics format
+        stats = {
+            "total_models": system_status.get("models", {}).get("total", 0),
+            "models_by_type": {},  # Not available in system status
+            "download_stats": system_status.get("downloads", {}),
+            "usage_stats": {"total_requests": 0, "avg_response_time": 0}  # Not available
+        }
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

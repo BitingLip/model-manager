@@ -11,15 +11,19 @@ from ..config import Settings
 def setup_logging(settings: Settings) -> None:
     """Setup structured logging"""
     
+    # Use default logging level if not available in settings
+    log_level = getattr(settings, 'log_level', 'INFO')
+    log_format = getattr(settings, 'log_format', 'text')
+    
     # Configure standard library logging
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
+        level=getattr(logging, log_level.upper()),
         stream=sys.stdout,
         format="%(message)s"
     )
     
     # Configure structlog
-    if settings.log_format.lower() == "json":
+    if log_format.lower() == "json":
         # JSON format for production
         structlog.configure(
             processors=[
@@ -56,6 +60,6 @@ def setup_logging(settings: Settings) -> None:
         )
 
 
-def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
+def get_logger(name: str = "__main__") -> structlog.stdlib.BoundLogger:
     """Get a structured logger instance"""
     return structlog.get_logger(name)

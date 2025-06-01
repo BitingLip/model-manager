@@ -1,15 +1,15 @@
 """
 Simple Registry Service Adapter
-Provides async interface to both ModelRegistry and PostgreSQLModelRegistry
+Provides async interface to the existing ModelRegistry
 """
 
-from typing import List, Optional, Union, cast
+from typing import List, Optional, Union
 import asyncio
 import logging
 
-from app.schemas.models import ModelEntry, WorkerInfo
-from app.models.registry import ModelRegistry
-from app.models.postgresql_registry import PostgreSQLModelRegistry
+from ..schemas.models import ModelEntry, WorkerInfo
+from ..models.registry import ModelRegistry
+from ..models.postgresql_registry import PostgreSQLModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class RegistryService:
 
     def _is_postgresql_registry(self) -> bool:
         """Check if using PostgreSQL registry"""
-        return isinstance(self.registry, PostgreSQLModelRegistry)
+        return hasattr(self.registry, '_get_connection')  # PostgreSQL specific method
 
     # Model operations
     async def get_model(self, model_id: str) -> Optional[ModelEntry]:
@@ -39,13 +39,11 @@ class RegistryService:
         """List models with optional search"""
         def _list():
             if self._is_postgresql_registry():
-                # PostgreSQL registry returns list directly
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
-                return pg_registry.list_models()
+                # PostgreSQL registry returns list directly, no search parameter
+                return self.registry.list_models()
             else:
                 # SQLite registry returns tuple (models, pagination) and supports search
-                sqlite_registry = cast(ModelRegistry, self.registry)
-                models, _ = sqlite_registry.list_models(search=search_term)
+                models, _ = self.registry.list_models(search=search_term)
                 return models
         return await asyncio.to_thread(_list)
     
@@ -69,7 +67,6 @@ class RegistryService:
             
             if self._is_postgresql_registry():
                 # PostgreSQL registry: update_model(model_id: str, updates: Dict[str, Any])
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
                 updates = {
                     'name': model.name,
                     'type': model.type.value,
@@ -84,11 +81,10 @@ class RegistryService:
                     'avg_inference_time': model.avg_inference_time,
                     'usage_count': model.usage_count
                 }
-                success = pg_registry.update_model(model_id, updates)
+                success = self.registry.update_model(model_id, updates)
             else:
                 # SQLite registry: update_model(model: ModelEntry)
-                sqlite_registry = cast(ModelRegistry, self.registry)
-                success = sqlite_registry.update_model(model)
+                success = self.registry.update_model(model)
             
             return model if success else None
         return await asyncio.to_thread(_update)
@@ -111,12 +107,10 @@ class RegistryService:
         def _list():
             if self._is_postgresql_registry():
                 # PostgreSQL registry returns list directly
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
-                return pg_registry.list_workers()
+                return self.registry.list_workers()
             else:
                 # SQLite registry returns tuple (workers, pagination)
-                sqlite_registry = cast(ModelRegistry, self.registry)
-                workers, _ = sqlite_registry.list_workers()
+                workers, _ = self.registry.list_workers()
                 return workers
         return await asyncio.to_thread(_list)
     
@@ -140,7 +134,6 @@ class RegistryService:
             
             if self._is_postgresql_registry():
                 # PostgreSQL registry: update_worker(worker_id: str, updates: Dict[str, Any])
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
                 updates = {
                     'gpu_index': worker.gpu_index,
                     'hostname': worker.hostname,
@@ -152,11 +145,10 @@ class RegistryService:
                     'status': worker.status.value,
                     'error_message': worker.error_message
                 }
-                success = pg_registry.update_worker(worker_id, updates)
+                success = self.registry.update_worker(worker_id, updates)
             else:
                 # SQLite registry: update_worker(worker: WorkerInfo)
-                sqlite_registry = cast(ModelRegistry, self.registry)
-                success = sqlite_registry.update_worker(worker)
+                success = self.registry.update_worker(worker)
             
             return worker if success else None
         return await asyncio.to_thread(_update)
@@ -174,13 +166,11 @@ class RegistryService:
             
             # Update model to assign it to the worker
             if self._is_postgresql_registry():
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
                 updates = {'assigned_worker': worker_id}
-                return pg_registry.update_model(model_id, updates)
+                return self.registry.update_model(model_id, updates)
             else:
-                sqlite_registry = cast(ModelRegistry, self.registry)
                 model.assigned_worker = worker_id
-                return sqlite_registry.update_model(model)
+                return self.registry.update_model(model)
         return await asyncio.to_thread(_assign)
     
     async def unassign_model_from_worker(self, model_id: str) -> bool:
@@ -191,26 +181,22 @@ class RegistryService:
                 return False
             
             if self._is_postgresql_registry():
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
                 updates = {'assigned_worker': None}
-                return pg_registry.update_model(model_id, updates)
+                return self.registry.update_model(model_id, updates)
             else:
-                sqlite_registry = cast(ModelRegistry, self.registry)
                 model.assigned_worker = None
-                return sqlite_registry.update_model(model)
+                return self.registry.update_model(model)
         return await asyncio.to_thread(_unassign)
     
     async def get_worker_models(self, worker_id: str) -> List[ModelEntry]:
         """Get models assigned to a specific worker"""
         def _get():
             if self._is_postgresql_registry():
-                # PostgreSQL registry - filter manually
-                pg_registry = cast(PostgreSQLModelRegistry, self.registry)
-                all_models = pg_registry.list_models()
+                # PostgreSQL registry - need to filter manually since no assigned_worker parameter
+                all_models = self.registry.list_models()
                 return [m for m in all_models if m.assigned_worker == worker_id]
             else:
                 # SQLite registry supports assigned_worker filter
-                sqlite_registry = cast(ModelRegistry, self.registry)
-                models, _ = sqlite_registry.list_models(assigned_worker=worker_id)
+                models, _ = self.registry.list_models(assigned_worker=worker_id)
                 return models
         return await asyncio.to_thread(_get)
